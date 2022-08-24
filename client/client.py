@@ -327,6 +327,8 @@ def ClientGet(filename):
             print("\t" + getElapsedTime(timeStart, timeEnd) + " (Download)") # calcola tempo impiegato per download di file
         else:
             print("\tError: file is corrupted, try to download the file again...")
+            if os.path.exists(dir_path + "Received-" + filename):
+                os.remove(dir_path + "Received-" + filename)
     else:
         print("\tError: File does not exist in server directory")
     

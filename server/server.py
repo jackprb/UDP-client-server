@@ -171,23 +171,23 @@ def ServerExit():
 
 ###########################################################################
 # gestisce invio di file da server a client (comando get)
-def ServerGet(g):
+def ServerGet(filename):
     msg = "Valid command GET"
     sendMsg(msg, clientAddr, 'encode')
     print("\nGET command accepted: \n")
 
-    if os.path.exists(dir_path + g):
+    if os.path.exists(dir_path + filename):
         msg = "File exists"
         sendMsg(msg, clientAddr, 'encode')
         print("\tFile exist. Sending packets to the client: ")
 
         c = 0
-        sizeOfFile = os.path.getsize(dir_path + g) # file size
+        sizeOfFile = os.path.getsize(dir_path + filename) # file size
         numOfPkt = getNumberOfPacketsToSend(sizeOfFile)# get number of packets to send
         sendMsg(str(numOfPkt), clientAddr, 'encode')
 
         check = int(numOfPkt)
-        fileR = open(dir_path + g, "rb")
+        fileR = open(dir_path + filename, "rb")
         finishedSuccessfully = False
         
         timeStart = datetime.datetime.now() # tempo di inizio upload
@@ -221,7 +221,7 @@ def ServerGet(g):
             if msgFinished == 'finished': 
                 timeEnd = datetime.datetime.now()
                 finishedSuccessfully = True
-                md5File = getMD5ofFile(dir_path + g) # g: file da inviare
+                md5File = getMD5ofFile(dir_path + filename) # filename: file da inviare
                 fileR.close()
                 try:
                     md5FileClient, clientaddress = receiveMsg('decode') # client invia md5 di file ricevuto
@@ -311,7 +311,9 @@ def ServerPut(clientAddr):
             timeEnd = datetime.datetime.now()
             print("\t" + getElapsedTime(timeStart, timeEnd) + " (Download)") # calcola tempo impiegato per download di file
         else:
-            print("\tError: file is corrupted, try to download the file again...")
+            print("\tError: file is corrupted")
+            if os.path.exists(dir_path + fileName):
+                os.remove(dir_path + fileName)
         print("\nComplete PUT operation\n")
     else:
         print("Error: no such file to receive from client")
