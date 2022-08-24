@@ -124,7 +124,7 @@ def ClientList():
         sys.exit()
     
     if text == "Valid List command":
-        cont = 0 # contatore di pacchetti ricevuti e poi scritti in file
+        cont = 0 # contatore di pacchetti ricevuti
         try:
             # countPckt: number of packets to be received
             CountPckt, countaddress = receiveMsg('decode')
@@ -132,7 +132,7 @@ def ClientList():
             print(TIMEOUT_ERRMSG)
             sys.exit()
     
-        pcktNum = int(CountPckt) # numero totale di pacchetti che formano il file
+        pcktNum = int(CountPckt) # numero totale di pacchetti che formano la lista
         
         while cont < pcktNum:
             try:    
@@ -153,13 +153,17 @@ def ClientList():
                 sys.exit()
                 
         if cont == pcktNum:  
-            sendMsg("finished", serverAddr, 'encode') # indica che il file è stato ricevuto per intero
+            sendMsg("finished", serverAddr, 'encode') # indica che tutta la lista è stata ricevuta per intero
         
         print("\n\tChecking list integrity...")
         md5List = getMD5ofString(fileList.encode()) # ottiene md5 di filelist
-        sendMsg(md5List, serverAddr, 'encode') # invia al server md5 di file ricevuto
-        msgListServer, clientbAddr = receiveMsg('decode') # riceve da server msg se file ok o corrotto
-    
+        sendMsg(md5List, serverAddr, 'encode') # invia al server md5 di lista ricevuta
+        try:
+            msgListServer, clientbAddr = receiveMsg('decode') # riceve da server msg se lista ok o corrotta
+        except Exception:
+            print(TIMEOUT_ERRMSG)
+            sys.exit()
+            
         if msgListServer == "list OK":
             print("\t" + msgListServer)
         else:
@@ -174,89 +178,104 @@ def ClientList():
 ###########################################################################
 # gestisce trasferimento di file da client a server (comando put)
 def ClientPut(path):
-    msg = "Valid command PUT"
-    sendMsg(msg, serverAddr, 'encode') # invia "valid cmd PUT"s
-
-    if os.path.exists(path):
-        filename = os.path.basename(path) # ottiene nome del file dal percorso
-        sendMsg(filename, serverAddr, 'encode') # invia "<nomefile.ext>"
-        print("\tFile exist. Sending file " + filename + " to the server... ")
-
-        c = 0
-        sizeOfFile = os.path.getsize(path) # file size
-        numOfPkt = getNumberOfPacketsToSend(sizeOfFile)
-        sendMsg(str(numOfPkt), serverAddr, 'encode') # invia "<num di pacchetti totali>"
-
-        check = int(numOfPkt)
-        fileR = open(path, "rb")
-        finishedSuccessfully = False
-        
-        md5File = getMD5ofFile(path) #file da inviare
-        timeStart = datetime.datetime.now() # tempo di inizio download
-        while not finishedSuccessfully:
-            while c < check:
-                content = fileR.read(PACKET_SIZE)
-                sendMsg(content, serverAddr, 'noEncode') # invia pacchetti in sequenza
-                md5Pckt = getMD5ofString(content) # md5 del pacchetto inviato
-                md5Client, server = receiveMsg('decode') # riceve md5 del server
-                md5ClientS = md5Client.split(" ", 1)
-                
-                if md5ClientS[1] == md5Pckt:
-                    sendMsg("ok", serverAddr, 'encode') #client conferma pacchetto corretto
-                    c += 1
-                    print("\tSent packet " + str(c) + " of " + str(numOfPkt), end='\r') # cont: ultimo pacchetto ricevuto
-                else: #se pacchetto corrotto
-                    print("\tpacket corrupted number:", c , "\n\n")
-                
-            
-            # se server invia msg Finished, significa che ha ricevuto tutto il file con successo
-            msgFinished = ''
-            try:
-                msgFinished, server = receiveMsg('decode') # per sapere se ha ricevuto tutto
-            except Exception as ex:
-                print("\tException: \n\n", ex)
-            
-            if msgFinished == 'finished': 
-                finishedSuccessfully = True
-                fileR.close()
-                md5FileServer, server = receiveMsg('decode') # server invia md5 di file ricevuto
-                
-                print("\n\tChecking file integrity...")
-                msg = ''
-                if md5FileServer == md5File:
-                    msg = "file OK"
-                    timeEnd = datetime.datetime.now()
-                    print("\t" + getElapsedTime(timeStart, timeEnd)) # calcola tempo impiegato per upload di file
-                else:
-                    msg = "file CORRUPTED, try again"
-                print("\t" + msg)
-                sendMsg(msg, serverAddr, 'encode')
-         
-        print("\nComplete PUT operation\n")
-        
-    else:
-        msg = "Error: the file you typed in does not exist on client"
-        sendMsg(msg, serverAddr, 'encode')
-        print(msg)
- 
-    
-###########################################################################
-# gestisce trasferimento di file da server a client (comando get)
-def ClientGet(filename):
-    print("\tWaiting for server response...\n")
+    print("\n\tWaiting for server response...")
     try:
         text, clientAddr = receiveMsg('decode')
     except Exception:
         print(TIMEOUT_ERRMSG)
         sys.exit()
-    #print(text) # print "valid command"
+    
+    if text == "Ready to receive":
+        print("\n\tServer is ready to receive")
+        if os.path.exists(path):
+            filename = os.path.basename(path) # ottiene nome del file dal percorso
+            sendMsg(filename, serverAddr, 'encode') # invia "<nomefile.ext>"
+            print("\tFile exist. Sending file " + filename + " to the server... ")
+    
+            c = 0
+            sizeOfFile = os.path.getsize(path) # file size
+            numOfPkt = getNumberOfPacketsToSend(sizeOfFile)
+            sendMsg(str(numOfPkt), serverAddr, 'encode') # invia "<num di pacchetti totali>"
+    
+            check = int(numOfPkt)
+            fileR = open(path, "rb")
+            finishedSuccessfully = False
+            
+            md5File = getMD5ofFile(path) #file da inviare
+            timeStart = datetime.datetime.now() # tempo di inizio download
+            while not finishedSuccessfully:
+                while c < check:
+                    content = fileR.read(PACKET_SIZE)
+                    sendMsg(content, serverAddr, 'noEncode') # invia pacchetti in sequenza
+                    md5Pckt = getMD5ofString(content) # md5 del pacchetto inviato
+                    try:
+                        md5Client, server = receiveMsg('decode') # riceve md5 del server
+                    except Exception:
+                        print(TIMEOUT_ERRMSG)
+                        sys.exit()
+                    md5ClientS = md5Client.split(" ", 1)
+                    
+                    if md5ClientS[1] == md5Pckt:
+                        sendMsg("ok", serverAddr, 'encode') #client conferma pacchetto corretto
+                        c += 1
+                        print("\tSent packet " + str(c) + " of " + str(numOfPkt), end='\r') # cont: ultimo pacchetto ricevuto
+                    else: #se pacchetto corrotto
+                        print("\tpacket corrupted number:", c , "\n\n")
+                    
+                
+                # se server invia msg Finished, significa che ha ricevuto tutto il file con successo
+                msgFinished = ''
+                try:
+                    msgFinished, server = receiveMsg('decode') # per sapere se ha ricevuto tutto
+                except Exception as ex:
+                    print("\tException: \n\n", ex)
+                
+                if msgFinished == 'finished': 
+                    finishedSuccessfully = True
+                    fileR.close()
+                    try:
+                        md5FileServer, server = receiveMsg('decode') # server invia md5 di file ricevuto
+                    except Exception:
+                        print(TIMEOUT_ERRMSG)
+                        sys.exit()
+                    
+                    print("\n\tChecking file integrity...")
+                    msg = ''
+                    if md5FileServer == md5File:
+                        msg = "file OK"
+                        timeEnd = datetime.datetime.now()
+                    else:
+                        msg = "file CORRUPTED, try again"
+                    print("\t" + msg)
+                    sendMsg(msg, serverAddr, 'encode')
+                    print("\t" + getElapsedTime(timeStart, timeEnd) + " (Upload)") # calcola tempo impiegato per upload di file
+            
+        else:
+            msg = ""
+            sendMsg(msg, serverAddr, 'encode')
+            print("Error: the file you typed in does not exist on this device")
+    else:
+            msg = "Error: the server is NOT ready to receive"
+            sendMsg(msg, serverAddr, 'encode')
+            print(msg)
+ 
+    
+###########################################################################
+# gestisce trasferimento di file da server a client (comando get)
+def ClientGet(filename):
+    print("\n\tWaiting for server response...")
+    try:
+        text, clientAddr = receiveMsg('decode')
+    except Exception:
+        print(TIMEOUT_ERRMSG)
+        sys.exit()
+    print("\n\tServer is ready to send")
     
     try:
         text2, clientAddr2 = receiveMsg('decode')
     except:
         print(TIMEOUT_ERRMSG)
         sys.exit()
-    #print(text2) # print "File exist"
     
     if text2 == "File exists": # se file esiste in server
         receivedFile = open(dir_path + "Received-" + filename, "wb")
@@ -269,7 +288,7 @@ def ClientGet(filename):
             sys.exit()
     
         pcktNum = int(CountPckt) # numero totale di pacchetti che formano il file
-        print("\tDownload of packets is starting...")
+        print("\tFile exists. Download of packets is starting...")
         
         timeStart = datetime.datetime.now() # tempo di inizio download
         while cont < pcktNum:
@@ -289,18 +308,23 @@ def ClientGet(filename):
                 print("\tan exception occurred (timeout): \n\n", ex)
                 
         if cont == pcktNum:  
+            timeEnd = datetime.datetime.now()
             sendMsg("finished", serverAddr, 'encode') # indica che il file è stato ricevuto per intero
         receivedFile.close() 
         
         print("\n\tChecking file integrity...")
         md5File = getMD5ofFile(dir_path + "Received-" + filename) # ottiene md5 di file ricevuto
         sendMsg(md5File, serverAddr, 'encode') # invia al server md5 di file ricevuto
-        msgFileServer, clientbAddr = receiveMsg('decode') # riceve da server msg se file ok o corrotto
-        
+        try:
+            msgFileServer, clientbAddr = receiveMsg('decode') # riceve da server msg se file ok o corrotto
+        except Exception:
+            print(TIMEOUT_ERRMSG)
+            sys.exit()
+            
         if msgFileServer == "file OK":
             print("\t" + msgFileServer)
-            timeEnd = datetime.datetime.now()
-            print("\t" + getElapsedTime(timeStart, timeEnd)) # calcola tempo impiegato per download di file
+            
+            print("\t" + getElapsedTime(timeStart, timeEnd) + " (Download)") # calcola tempo impiegato per download di file
         else:
             print("\tError: file is corrupted, try to download the file again...")
     else:
@@ -310,9 +334,9 @@ def ClientGet(filename):
 ###########################################################################
 # chiude socket ed esce
 def ClientExit():
-    print("Exiting...")
+    print("Client will gracefully exit!")
     time.sleep(1)
-    print("Goodbye.")
+    print("Goodbye...")
     s.close()
     sys.exit(0)
     

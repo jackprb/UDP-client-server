@@ -35,7 +35,9 @@ def getAllFiles():
     listFiles = os.listdir(dir_path)
     stringFiles = '\nList of all files on server\n'
     for i in listFiles:
-        stringFiles += i + "\n"
+        cont = 30-len(i)
+        stri = " "*cont
+        stringFiles += i + stri + "\t\t " + str(os.path.getsize(dir_path+i)) + " Byte(s)\n"
     return stringFiles
 
 
@@ -119,7 +121,11 @@ def ServerList():
             sendMsg(content, clientAddr, 'noEncode')
             md5Pckt = getMD5ofString(content) # md5 del pacchetto inviato
             print("\tsent packet number:" , str(c+1), end='\r')
-            md5Client, client = receiveMsg('decode') # riceve md5 del client
+            try:
+                md5Client, client = receiveMsg('decode') # riceve md5 del client
+            except Exception:
+                print(TIMEOUT_ERRMSG)
+                sys.exit()
             md5ClientS = md5Client.split(" ", 1)
             
             if md5ClientS[1] == md5Pckt:
@@ -128,7 +134,7 @@ def ServerList():
             else: #se pacchetto corrotto
                 print("\tpacket corrupted number:", c , "\n\n")
             
-        # se client invia msg Finished, significa che ha ricevuto tutto il file con successo
+        # se client invia msg Finished, significa che ha ricevuto tutta la lista con successo
         msgFinished = ''
         try:
             msgFinished, countaddress = receiveMsg('decode') # per sapere se ha ricevuto tutto
@@ -137,8 +143,12 @@ def ServerList():
         
         if msgFinished == 'finished': 
             finishedSuccessfully = True
-            md5ListClient, clientaddress = receiveMsg('decode') # client invia md5 di file ricevuto
-            
+            try:
+                md5ListClient, clientaddress = receiveMsg('decode') # client invia md5 di lista ricevuta
+            except Exception:
+                print(TIMEOUT_ERRMSG)
+                sys.exit()
+                
             print("\n\tChecking list integrity...")
             msg = ''
             if md5ListClient == md5List:
@@ -180,13 +190,18 @@ def ServerGet(g):
         fileR = open(dir_path + g, "rb")
         finishedSuccessfully = False
         
+        timeStart = datetime.datetime.now() # tempo di inizio upload
         while not finishedSuccessfully:
             while c < check:
                 content = fileR.read(PACKET_SIZE)
                 sendMsg(content, clientAddr, 'noEncode')
                 md5Pckt = getMD5ofString(content) # md5 del pacchetto inviato
-                print("\tsent packet number:" , str(c+1), end='\r')
-                md5Client, client = receiveMsg('decode') # riceve md5 del client
+                print("\tSent packet " + str(c+1) + " of " + str(numOfPkt), end='\r')
+                try:
+                    md5Client, client = receiveMsg('decode') # riceve md5 del client
+                except Exception:
+                    print(TIMEOUT_ERRMSG)
+                    sys.exit()
                 md5ClientS = md5Client.split(" ", 1)
                 
                 if md5ClientS[1] == md5Pckt:
@@ -204,11 +219,16 @@ def ServerGet(g):
                 print("\tException: \n\n", ex)
             
             if msgFinished == 'finished': 
+                timeEnd = datetime.datetime.now()
                 finishedSuccessfully = True
                 md5File = getMD5ofFile(dir_path + g) # g: file da inviare
                 fileR.close()
-                md5FileClient, clientaddress = receiveMsg('decode') # client invia md5 di file ricevuto
-                
+                try:
+                    md5FileClient, clientaddress = receiveMsg('decode') # client invia md5 di file ricevuto
+                except Exception:
+                    print(TIMEOUT_ERRMSG)
+                    sys.exit()
+                    
                 print("\n\tChecking file integrity...")
                 msg = ''
                 if md5FileClient == md5File:
@@ -217,6 +237,7 @@ def ServerGet(g):
                     msg = "file CORRUPTED, try again"
                 print("\t" + msg)
                 sendMsg(msg, clientAddr, 'encode')
+                print("\t" + getElapsedTime(timeStart, timeEnd) + " (Upload)") # calcola tempo impiegato per upload di file
          
         print("\nComplete GET operation\n")
         
@@ -228,14 +249,10 @@ def ServerGet(g):
 
 ###########################################################################
 # gestisce invio di file da client a server (comando put)
-def ServerPut():
-    print("PUT command accepted: \n")
-    print("\tWaiting for server response...\n")
-    try:
-        text, clientAddr = receiveMsg('decode') # receive "valid put command"
-    except Exception:
-        print(TIMEOUT_ERRMSG)
-        sys.exit()
+def ServerPut(clientAddr):
+    print("\nPUT command accepted: \n")
+    msg = "Ready to receive"
+    sendMsg(msg, clientAddr, 'encode')
     
     try:
         fileName, clientAddr = receiveMsg('decode') # server riceve nome del file
@@ -243,8 +260,8 @@ def ServerPut():
         print(TIMEOUT_ERRMSG)
         sys.exit()
         
-    if "Error" not in fileName: # se file esiste nel client
-        print("\tReceiving file " + fileName) 
+    if fileName != "": # se file esiste nel client
+        print("\tReceiving file " + fileName + " from client " + str(clientAddr[0]) + ":" + str(clientAddr[1])) 
         
         receivedFile = open(dir_path + fileName, "wb")
         cont = 0 # contatore di pacchetti ricevuti e poi scritti in file
@@ -282,27 +299,30 @@ def ServerPut():
         print("\n\tChecking file integrity...")
         md5File = getMD5ofFile(dir_path + fileName) # ottiene md5 di file ricevuto
         sendMsg(md5File, clientAddr, 'encode') # invia al server md5 di file ricevuto
-        msgFileServer, clientAddr = receiveMsg('decode') # riceve da server msg se file ok o corrotto
-    
+        try:
+            msgFileServer, clientAddr = receiveMsg('decode') # riceve da server msg se file ok o corrotto
+        except Exception:
+            print(TIMEOUT_ERRMSG)
+            sys.exit()
        
         
         if msgFileServer == "file OK":
             print("\t" + msgFileServer)
             timeEnd = datetime.datetime.now()
-            print("\t" + getElapsedTime(timeStart, timeEnd)) # calcola tempo impiegato per download di file
+            print("\t" + getElapsedTime(timeStart, timeEnd) + " (Download)") # calcola tempo impiegato per download di file
         else:
             print("\tError: file is corrupted, try to download the file again...")
-    
+        print("\nComplete PUT operation\n")
     else:
-        print("Error: upload aborted by client")
+        print("Error: no such file to receive from client")
     
 
 ###########################################################################
 # gestisce comandi non riconosciuti
 def ServerElse():
-    msg = "Error: unknown command. \n Command sent: \t" + cmd[0] 
+    msg = "\nError: unknown command. \nCommand sent: \t" + cmd[0] 
     sendMsg(msg, clientAddr, 'encode')
-    print("Message Sent.")
+    print(msg)
     
 #######################################################
 #           fine definizione di funzioni              #
@@ -331,7 +351,11 @@ if __name__ == '__main__':
     while True:
         cicle = True
         # riceve ACK da client
-        ack, clientAddr = receiveMsg('decode')
+        try:
+            ack, clientAddr = receiveMsg('decode')
+        except Exception:
+            print(TIMEOUT_ERRMSG)
+            sys.exit()
         if ack == 'Asking for connection...':
             msgRe = "Connection established"
             print(msgRe + " with " + str(clientAddr[0]) + ":" + str(clientAddr[1]))
@@ -350,7 +374,7 @@ if __name__ == '__main__':
                     ServerGet(cmd[1])
                     
                 elif cmd[0] == "put":
-                    ServerPut()
+                    ServerPut(clientAddr)
                     
                 elif cmd[0] == "list":
                     ServerList()
@@ -360,11 +384,14 @@ if __name__ == '__main__':
                 
                 elif cmd[0] == 'help' or cmd[0] == 'clear' or cmd[0] == 'server':
                     print("\nDo nothing, operation for client only (" + cmd[0] + ")")
+                
+                elif cmd[0] == 'Asking' :
+                    print("\nNew client connected. Welcome!")
+                    sendMsg(msgRe, clientAddr, 'encode')
                     
                 elif cmd[0] == 'end' :
                     cicle = False
-                    print("\nWaiting for another client...")
-                                    
+                    print("\nWaiting for another client...")              
                 else:
                     ServerElse()
             
